@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><link rel="canonical" href="https://mclaireh.github.io/event-drive-arch/pub-sub/" />
+      <link rel="shortcut icon" href="../img/favicon.ico" />
+    <title>Pub-Sub Eventing System - Jetty System Design</title>
+    <link rel="stylesheet" href="../css/theme.css" />
+    <link rel="stylesheet" href="../css/theme_extra.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" />
+    
+      <script>
+        // Current page data
+        var mkdocs_page_name = "Pub-Sub Eventing System";
+        var mkdocs_page_input_path = "pub-sub.md";
+        var mkdocs_page_url = "/event-drive-arch/pub-sub/";
+      </script>
+    
+    <!--[if lt IE 9]>
+      <script src="../js/html5shiv.min.js"></script>
+    <![endif]-->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+      <script>hljs.highlightAll();</script> 
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+          <a href=".." class="icon icon-home"> Jetty System Design
+        </a><div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="../search.html" method="get">
+      <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+                <li class="toctree-l1"><a class="reference internal" href="..">Home</a>
+                </li>
+              </ul>
+              <ul class="current">
+                <li class="toctree-l1 current"><a class="reference internal current" href="#">Pub-Sub Eventing System</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#pub-sub-eventing-diagram">Pub-Sub Eventing Diagram</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#summary">Summary</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#deep-dive">Deep Dive</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#api-gateway">API Gateway</a>
+    </li>
+    <li class="toctree-l3"><a class="reference internal" href="#dynamodb-global-tables">DynamoDB Global Tables</a>
+    </li>
+        </ul>
+    </li>
+    </ul>
+                </li>
+              </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+      <nav class="wy-nav-top" role="navigation" aria-label="Mobile navigation menu">
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="..">Jetty System Design</a>
+        
+      </nav>
+      <div class="wy-nav-content">
+        <div class="rst-content"><div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href=".." class="icon icon-home" aria-label="Docs"></a></li>
+      <li class="breadcrumb-item active">Pub-Sub Eventing System</li>
+    <li class="wy-breadcrumbs-aside">
+    </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+            <div class="section" itemprop="articleBody">
+              
+                <h1 id="pub-sub-eventing-system">Pub-Sub Eventing System</h1>
+<p><br><br></p>
+<h2 id="pub-sub-eventing-diagram">Pub-Sub Eventing Diagram</h2>
+<p><img alt="pub-sub-system" src="../img/pub-sub-one-region.png" /></p>
+<h2 id="summary">Summary</h2>
+<p>This is an example of a pub-sub eventing system.. This diagram is only for <code>us-east-1</code> (or any other single region) for simplicity. Third party publishers push events to the <code>API Gateway</code>. These events have payloads that are processed by the <code>Ingestion Gateway Lambda</code> to go to <code>DynamoDB</code>. The <code>Ingestion Gateway Lambda</code> also has a <code>SQS DLQ</code>. If for some reason the events cannot make it to the <code>DynamoDB</code> they are sent to the <code>DLQ</code> where they await reprocessing. There is a <code>CloudWatch Alarm</code> on the <code>DQL</code> so that I know when events are there and can reprocess them quickly. This also allows me to investigate and find out if there are any issues that I need to resolve that would have caused the failure. The <code>Ingestion Gateway Lambda</code> also pushes the processed payloads from the <code>API Gateway</code> to a <code>Macie S3 bucket</code>. This <code>S3</code> bucket is where <code>AWS Macie</code> will scan and look to see if there is any sensitive information present in the saved payloads. If there is sensitive information present in the payloads, then it will alert and I will speak with the publishers to stop that from happening further. </p>
+<p>Events are saved in <code>DynamoDB</code> and then <code>DynamoDB Streams</code> begins to be created. These streams invoke a <code>Publish SNS lambda</code>. This <code>lambda</code> pushes the events from <code>DynamoDB streams</code> to a specific <code>SNS topic</code> depending on the payload. <code>Publish SNS lambda</code> has a <code>SQS DLQ</code> also. If there is a failure to push to <code>SNS</code> then the events go to the <code>DLQ</code>. This <code>DLQ</code> has a <code>CloudWatch Alarm</code> set up so that if there are any events on the <code>DLQ</code> it will alert me. This is again so that I can replay the events quickly and be alerted of any potential issues that need to be resolved before replaying the events. There are multiple <code>SNS topics</code> and a subscriber can subscribe to as many as they desire. These <code>SNS topics</code> push the events to the subscriber so that the subscriber can do what they need to do with these events (such as sending a text message to the customer).</p>
+<h2 id="deep-dive">Deep Dive</h2>
+<p>I would like to deep dive into a couple of the resources to give more detail of the design considerations.</p>
+<h3 id="api-gateway">API Gateway</h3>
+<p>I authenticated the publishers by using API keys. Each publisher had a single API Key that was unique to them. This allowed me to revoke API keys and thus access if needed. It also guaranteed that only those who had been granted API keys could publish to the system. This helped to lock down the system from potential abuse. I also assigned each publisher a usage plan. Having a usage plan for each publisher allowed me to throttle if the publisher began publish something against company rules, such as sensitive customer info. </p>
+<h3 id="dynamodb-global-tables">DynamoDB Global Tables</h3>
+<p>The <code>DynamoDB</code> tables are global tables. This allows for 99.999% availability. It also automatically replicates the data between regions, so there is no need to have to write scripts or code to setup the replication. This can also play a key role in disaster recovery between regions.</p>
+              
+            </div>
+          </div><footer>
+    <div class="rst-footer-buttons" role="navigation" aria-label="Footer Navigation">
+        <a href=".." class="btn btn-neutral float-left" title="Home"><span class="icon icon-circle-arrow-left"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+          
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="Versions">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    
+    
+      <span><a href=".." style="color: #fcfcfc">&laquo; Previous</a></span>
+    
+    
+  </span>
+</div>
+    <script src="../js/jquery-3.6.0.min.js"></script>
+    <script>var base_url = "..";</script>
+    <script src="../js/theme_extra.js"></script>
+    <script src="../js/theme.js"></script>
+      <script src="../search/main.js"></script>
+    <script>
+        jQuery(function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        });
+    </script>
+
+</body>
+</html>
