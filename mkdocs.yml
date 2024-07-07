@@ -1,0 +1,7 @@
+site_name: Jetty System Design
+site_url: https://mclaireh.github.io/event-drive-arch/
+theme:
+  name: readthedocs
+nav:
+  - Home: index.md
+  - Pub-Sub Eventing System: pub-sub.md
